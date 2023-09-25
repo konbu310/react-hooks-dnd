@@ -19,6 +19,7 @@ type DnDRef<T> = {
   canCheckHovered: boolean;
   pointerPosition: Position;
   dragElement: DnDItem<T> | null;
+  movedElementNewIndex: number;
 };
 
 type DnDSortResult<T> = {
@@ -30,32 +31,34 @@ type DnDSortResult<T> = {
   };
 };
 
-const extractPointerPosition = (event: PointerEvent | TouchEvent): Position => {
-  let clientX = 0,
-    clientY = 0;
-  if (event instanceof PointerEvent) {
-    clientX = event.clientX;
-    clientY = event.clientY;
-  } else {
-    clientX = event.touches[0].clientX;
-    clientY = event.touches[0].clientY;
-  }
-  return { x: clientX, y: clientY };
-};
+function distanceBetween(p1: Position, p2: Position) {
+  return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+}
 
-const isHover = (
-  event: PointerEvent | TouchEvent,
-  element: HTMLElement
-): boolean => {
-  const { x: clientX, y: clientY } = extractPointerPosition(event);
-  const rect = element.getBoundingClientRect();
-  return (
-    clientX >= rect.left &&
-    clientX <= rect.right &&
-    clientY >= rect.top &&
-    clientY <= rect.bottom
-  );
-};
+function centerOfRect({ left, top, height, width }: DOMRect): Position {
+  return {
+    x: left + width / 2,
+    y: top + height / 2,
+  };
+}
+
+function closestCenter<T>(
+  dragIndex: number,
+  dragElement: HTMLElement,
+  dndItems: DnDItem<T>[]
+) {
+  const dragElementRect = dragElement.getBoundingClientRect();
+  const dragElementCenter = centerOfRect(dragElementRect);
+  const collisions = dndItems.flatMap((dndElm, index) => {
+    const { element } = dndElm;
+    if (dragIndex === index) return [];
+    const rect = element.getBoundingClientRect();
+    const center = centerOfRect(rect);
+    const distance = distanceBetween(dragElementCenter, center);
+    return { element, distance, rect, index };
+  });
+  return collisions.sort((a, b) => a.distance - b.distance);
+}
 
 export const useDnDSort = <T>(defaultItems: T[]): DnDSortResult<T>[] => {
   const [items, setItems] = useState(defaultItems);
@@ -66,12 +69,26 @@ export const useDnDSort = <T>(defaultItems: T[]): DnDSortResult<T>[] => {
     dragElement: null,
     canCheckHovered: true,
     pointerPosition: { x: 0, y: 0 },
+    movedElementNewIndex: -1,
   }).current;
+
+  const extractPointerPosition = (
+    event: PointerEvent | TouchEvent
+  ): Position => {
+    let clientX = 0,
+      clientY = 0;
+    if (event instanceof PointerEvent) {
+      clientX = event.clientX;
+      clientY = event.clientY;
+    } else {
+      clientX = event.touches[0].clientX;
+      clientY = event.touches[0].clientY;
+    }
+    return { x: clientX, y: clientY };
+  };
 
   const onPointerMove = (event: PointerEvent | TouchEvent) => {
     const { x: clientX, y: clientY } = extractPointerPosition(event);
-
-    console.log(`${clientX}, ${clientY}`);
 
     const { dndItems, dragElement, pointerPosition } = state;
 
@@ -98,11 +115,25 @@ export const useDnDSort = <T>(defaultItems: T[]): DnDSortResult<T>[] => {
       (item) => item.key === dragElement.key
     );
 
-    const hoveredIndex = dndItems.findIndex(
-      (item, index) => index !== dragIndex && isHover(event, item.element)
-    );
+    let hoveredIndex = -1;
 
-    if (hoveredIndex !== -1) {
+    const closestElm = closestCenter(
+      dragIndex,
+      dragElement.element,
+      dndItems
+    )[0];
+
+    if (closestElm && closestElm.distance < closestElm.rect.height) {
+      hoveredIndex = closestElm.index;
+    } else {
+      state.movedElementNewIndex = -1;
+    }
+
+    if (
+      hoveredIndex !== -1 &&
+      (state.movedElementNewIndex === -1 ||
+        state.movedElementNewIndex !== hoveredIndex)
+    ) {
       state.pointerPosition.x = clientX;
       state.pointerPosition.y = clientY;
 
@@ -114,6 +145,8 @@ export const useDnDSort = <T>(defaultItems: T[]): DnDSortResult<T>[] => {
       dragElement.position = { x, y };
 
       setItems(dndItems.map((item) => item.value));
+
+      state.movedElementNewIndex = dragIndex;
     }
   };
 
@@ -127,6 +160,7 @@ export const useDnDSort = <T>(defaultItems: T[]): DnDSortResult<T>[] => {
     dragStyle.zIndex = "";
     dragStyle.transform = "";
     dragStyle.cursor = "grab";
+    dragStyle.boxShadow = "var(--shadow-elevation-medium)";
 
     document.body.style.userSelect = "";
     document.body.style.overflow = "";
@@ -191,7 +225,7 @@ export const useDnDSort = <T>(defaultItems: T[]): DnDSortResult<T>[] => {
 
             requestAnimationFrame(() => {
               element.style.transform = "";
-              element.style.transition = "all 300ms";
+              element.style.transition = "all 250ms";
             });
           }
 
@@ -199,6 +233,7 @@ export const useDnDSort = <T>(defaultItems: T[]): DnDSortResult<T>[] => {
         },
         onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
           const element = event.currentTarget;
+          element.style.boxShadow = "var(--shadow-elevation-high)";
 
           state.pointerPosition.x = event.clientX;
           state.pointerPosition.y = event.clientY;

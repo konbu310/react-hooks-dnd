@@ -39,13 +39,13 @@ export const App: FC<{}> = ({}) => {
             data-key={item.key}
             {...item.events}
             style={{
+              msTouchAction: "manipulation",
               border: "1px solid lightgray",
               borderRadius: 8,
               padding: "18px 20px",
               background: "#fefefe",
               cursor: "grab",
-              boxShadow:
-                "0 0 0 calc(1px / var(--scale-x, 1)) rgba(63, 63, 68, 0.05), 0 1px calc(3px / var(--scale-x, 1)) 0 rgba(34, 33, 81, 0.15)",
+              boxShadow: "var(--shadow-elevation-medium)",
               width: 350,
               touchAction: "manipulation",
             }}
