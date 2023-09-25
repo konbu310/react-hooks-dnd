@@ -30,8 +30,24 @@ type DnDSortResult<T> = {
   };
 };
 
-const isHover = (event: PointerEvent, element: HTMLElement): boolean => {
-  const { clientX, clientY } = event;
+const extractPointerPosition = (event: PointerEvent | TouchEvent): Position => {
+  let clientX = 0,
+    clientY = 0;
+  if (event instanceof PointerEvent) {
+    clientX = event.clientX;
+    clientY = event.clientY;
+  } else {
+    clientX = event.touches[0].clientX;
+    clientY = event.touches[0].clientY;
+  }
+  return { x: clientX, y: clientY };
+};
+
+const isHover = (
+  event: PointerEvent | TouchEvent,
+  element: HTMLElement
+): boolean => {
+  const { x: clientX, y: clientY } = extractPointerPosition(event);
   const rect = element.getBoundingClientRect();
   return (
     clientX >= rect.left &&
@@ -52,9 +68,11 @@ export const useDnDSort = <T>(defaultItems: T[]): DnDSortResult<T>[] => {
     pointerPosition: { x: 0, y: 0 },
   }).current;
 
-  const onPointerMove = (event: PointerEvent) => {
-    console.log("Pointer Move");
-    const { clientX, clientY } = event;
+  const onPointerMove = (event: PointerEvent | TouchEvent) => {
+    const { x: clientX, y: clientY } = extractPointerPosition(event);
+
+    console.log(`${clientX}, ${clientY}`);
+
     const { dndItems, dragElement, pointerPosition } = state;
 
     if (!dragElement) return;
@@ -99,8 +117,7 @@ export const useDnDSort = <T>(defaultItems: T[]): DnDSortResult<T>[] => {
     }
   };
 
-  const onPointerUp = (event: PointerEvent) => {
-    console.log("Pointer Up");
+  const onPointerUp = (event: PointerEvent | TouchEvent) => {
     const { dragElement } = state;
 
     if (!dragElement) return;
@@ -116,8 +133,18 @@ export const useDnDSort = <T>(defaultItems: T[]): DnDSortResult<T>[] => {
 
     state.dragElement = null;
 
-    window.removeEventListener("pointerup", onPointerUp);
-    window.removeEventListener("pointermove", onPointerMove);
+    if (event instanceof PointerEvent) {
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointermove", onPointerMove);
+    } else {
+      dragElement.element.removeEventListener("touchmove", preventDefault);
+      window.removeEventListener("touchend", onPointerUp);
+      window.removeEventListener("touchmove", onPointerMove);
+    }
+  };
+
+  const preventDefault = (ev: TouchEvent) => {
+    ev.preventDefault();
   };
 
   return items.map((value, index) => {
@@ -153,10 +180,24 @@ export const useDnDSort = <T>(defaultItems: T[]): DnDSortResult<T>[] => {
             pointerPosition.y -= dragY;
           }
 
+          if (dragElement?.key !== key) {
+            const item = dndItems[itemIndex];
+
+            const x = item.position.x - position.x;
+            const y = item.position.y - position.y;
+
+            element.style.transition = "";
+            element.style.transform = `translate(${x}px, ${y}px)`;
+
+            requestAnimationFrame(() => {
+              element.style.transform = "";
+              element.style.transition = "all 300ms";
+            });
+          }
+
           state.dndItems[itemIndex] = { key, value, element, position };
         },
         onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
-          console.log(`Pointer Down: ${event.pointerType}`);
           const element = event.currentTarget;
 
           state.pointerPosition.x = event.clientX;
@@ -170,8 +211,17 @@ export const useDnDSort = <T>(defaultItems: T[]): DnDSortResult<T>[] => {
 
           state.dragElement = { key, value, element, position };
 
-          window.addEventListener("pointerup", onPointerUp);
-          window.addEventListener("pointermove", onPointerMove);
+          if (event.pointerType === "mouse") {
+            window.addEventListener("pointerup", onPointerUp);
+            window.addEventListener("pointermove", onPointerMove);
+          } else {
+            element.addEventListener("touchmove", preventDefault, {
+              capture: false,
+              passive: false,
+            });
+            window.addEventListener("touchend", onPointerUp);
+            window.addEventListener("touchmove", onPointerMove);
+          }
         },
       },
     };
